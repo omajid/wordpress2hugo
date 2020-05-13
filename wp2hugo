@@ -1,0 +1,22 @@
+#!/usr/bin/python3
+
+import argparse
+import sys
+
+DESCRIPTION = 'Export a WordPress site to Hugo'
+
+def main(cmdline_arguments) -> int:
+    parser = argparse.ArgumentParser(description=DESCRIPTION)
+    parser.add_argument('export_file', metavar='wordpress-export', help='wordpress export file')
+    parser.add_argument('-o', '--output', default='', help='output directory')
+
+    args = parser.parse_args(cmdline_arguments[1:])
+
+    print(args.output)
+    print(args.export_file)
+
+    return 0
+
+if __name__ == '__main__':
+    retval = main(sys.argv)
+    sys.exit(retval)
