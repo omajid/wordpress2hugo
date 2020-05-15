@@ -1,0 +1,67 @@
+#!/usr/bin/python3
+
+import argparse
+import pathlib
+import sys
+from typing import Optional
+import xml.etree.ElementTree as ET
+import urllib.parse
+
+DESCRIPTION = 'Export a WordPress site to Hugo'
+
+def main(cmdline_arguments) -> int:
+    parser = argparse.ArgumentParser(description=DESCRIPTION)
+    parser.add_argument('export_file', metavar='wordpress-export', help='wordpress export file')
+    parser.add_argument('-o', '--output', default=None, help='output directory')
+
+    args = parser.parse_args(cmdline_arguments[1:])
+
+    print(args.export_file)
+
+    tree: ET.Element = parse_xml(pathlib.Path(args.export_file))
+
+    channel: ET.Element = get(tree.find('channel'))
+
+    output_dir = args.output and pathlib.Path(args.output) or None
+    if output_dir is None:
+        website_link = ''.join(get(channel.find('link')).itertext())
+        # TODO what if it's http?
+        website_address = website_link.lstrip("https://")
+        output_dir = pathlib.Path(website_address)
+
+    print(output_dir)
+    output_dir.mkdir()
+
+    generate_config_toml(output_dir, tree)
+
+    return 0
+
+def parse_xml(xml_file: pathlib.Path) -> ET.Element:
+    root = ET.parse(xml_file.as_posix()).getroot()
+    return root
+
+
+def generate_config_toml(directory: pathlib.Path, tree: ET.Element) -> None:
+    file = directory / 'config.toml'
+    channel: ET.Element = get(tree.find('channel'))
+    website_link: str = ''.join(get(channel.find('link')).itertext())
+    title: str = ''.join(get(channel.find('title')).itertext())
+
+    with open(file, 'w') as output:
+        output.write(f'baseURL = "{website_link}"\n')
+        output.write(f'languageCode = "en-us"\n')
+        output.write(f'title = "{title}"\n')
+        output.write(f'# theme = ""\n')
+
+def get(element: Optional[ET.Element]) -> ET.Element:
+    if element is None:
+        raise AssertionError
+    return element
+
+class WordPress:
+    pass
+
+
+if __name__ == '__main__':
+    retval = main(sys.argv)
+    sys.exit(retval)
