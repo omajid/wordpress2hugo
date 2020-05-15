@@ -1,13 +1,13 @@
-# wp2hugo - Migrate from WordPress to Hugo
+# wordpress2hugo - Migrate from WordPress to Hugo
 
 ## Usage
 
 ``` shell
-./wp2hugo.py --help
+./wordpress2hugo --help
 
-./wp2hugo.py wordpress.xml --output omajid.github.io
+./wordpress2hugo wordpress.xml --output omajid.github.io
 ```
 
 ## License
 
-`wp2hugo` is licensed under GPLv3. See the LICENSE file for details.
+`wordpress2hugo` is licensed under GPLv3. See the LICENSE file for details.
