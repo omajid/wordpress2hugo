@@ -1,66 +1,203 @@
 #!/usr/bin/python3
 
 import argparse
+import collections
 import pathlib
 import sys
-from typing import Optional
+from typing import List, Literal, Optional, NewType, Sequence, TypeVar
 import xml.etree.ElementTree as ET
 import urllib.parse
 
 DESCRIPTION = 'Export a WordPress site to Hugo'
 
+T = TypeVar('T')
+
+Html = NewType('Html', str)
+
+WordPressAuthor = collections.namedtuple('WordPressAuthor', ['id', 'login', 'email', 'display_name', 'first_name', 'last_name'])
+WordPressCategory = collections.namedtuple('WordPressCategory', ['id', 'nice_name', 'parent', 'name'])
+WordPressTag = collections.namedtuple('WordPressTag', ['term_id', 'slug', 'tag_name'])
+
+class WordPressItem:
+    def __init__(self):
+        self.title: str = ''
+        self.link: str = ''
+        self.pubDate: str = ''
+        self.creator: str = ''
+        self.guid: Optional[str] = None
+        self.description: Optional[str] = None
+        self.content: Html = ''
+        self.excerpt: Optional[str] = None
+        self.post_id: int = 0
+        # FIXME: stronger type
+        self.post_date: str = ''
+        self.post_name: str = ''
+        # FIXME: stronger type
+        self.post_type: str = 'post'
+        self.category: str = 'uncategorized'
+        self.tag_slugs: List[str] = []
+
+class WordPress:
+
+    namespaces = {
+        'wp': 'http://wordpress.org/export/1.2/',
+        'dc': 'http://purl.org/dc/elements/1.1/',
+        'content': 'http://purl.org/rss/1.0/modules/content/',
+        'excerpt': 'http://wordpress.org/export/1.2/excerpt/',
+        'wfw': 'http://wellformedweb.org/CommentAPI/',
+    }
+
+    def __init__(self, xml_file: pathlib.Path):
+        self.__tree: ET.Element = ET.parse(xml_file.as_posix()).getroot()
+        self.__channel: ET.Element = required(self.__tree.find('channel'))
+        self.authors: Sequence[WordPressAuthor] = self.__init_authors()
+        self.categories: Sequence[WordPressCategory] = self.__init_categories()
+        self.items: Sequence[WordPressItem] = self.__init_items()
+        self.tags: Sequence[WordPressTag] = self.__init_tags()
+
+    def __init_authors(self) -> Sequence[WordPressAuthor]:
+        authors: List[WordPressAuthor] = []
+        for author in required(self.__channel.findall('wp:author', WordPress.namespaces)):
+            author_id = ''.join(required(author.find('wp:author_id', WordPress.namespaces)).itertext())
+            author_login = ''.join(required(author.find('wp:author_login', WordPress.namespaces)).itertext())
+            author_email = ''.join(required(author.find('wp:author_email', WordPress.namespaces)).itertext())
+            author_display_name = ''.join(required(author.find('wp:author_display_name', WordPress.namespaces)).itertext())
+            author_first_name = ''.join(required(author.find('wp:author_first_name', WordPress.namespaces)).itertext())
+            author_last_name = ''.join(required(author.find('wp:author_last_name', WordPress.namespaces)).itertext())
+            authors.append(WordPressAuthor(author_id, author_login, author_email, author_display_name, author_first_name, author_last_name))
+        return authors
+
+    def __init_categories(self) -> Sequence[WordPressCategory]:
+        categories: List[WordPressCategory] = []
+        for category in required(self.__channel.findall('wp:category', WordPress.namespaces)):
+            term_id = ''.join(required(category.find('wp:term_id', WordPress.namespaces)).itertext())
+            category_nicename = ''.join(required(category.find('wp:category_nicename', WordPress.namespaces)).itertext())
+            category_parent = ''.join(required(category.find('wp:category_parent', WordPress.namespaces)).itertext())
+            cat_name = ''.join(required(category.find('wp:cat_name', WordPress.namespaces)).itertext())
+            categories.append(WordPressCategory(term_id, category_nicename, category_parent, cat_name))
+        return categories
+
+    def __init_items(self) -> Sequence[WordPressItem]:
+        items: List[WordPressItem] = []
+        for item in required(self.__channel.findall('item')):
+            wp_item = WordPressItem()
+            wp_item.title = ''.join(required(item.find('title')).itertext())
+            wp_item.link = ''.join(required(item.find('link')).itertext())
+            wp_item.pubDate = ''.join(required(item.find('pubDate')).itertext())
+            wp_item.creator = ''.join(required(item.find('dc:creator', WordPress.namespaces)).itertext())
+            wp_item.guid = ''.join(required(item.find('guid')).itertext())
+            wp_item.description = ''.join(required(item.find('description')).itertext())
+            wp_item.content = Html(''.join(required(item.find('content:encoded', WordPress.namespaces)).itertext()))
+            wp_item.post_id = int(''.join(required(item.find('wp:post_id', WordPress.namespaces)).itertext()))
+            wp_item.post_date = ''.join(required(item.find('wp:post_date', WordPress.namespaces)).itertext())
+            wp_item.post_name = ''.join(required(item.find('wp:post_name', WordPress.namespaces)).itertext())
+            wp_item.post_type = ''.join(required(item.find('wp:post_type', WordPress.namespaces)).itertext())
+            category: str = 'uncategorized'
+            tag_slugs: List[str] = []
+            messed_up_categories = item.findall('category')
+            for a_category in messed_up_categories:
+                if a_category.get('domain') == 'category':
+                    category = required(a_category.get('nicename'))
+                if a_category.get('domain') == 'post_tag':
+                    tag_slugs.append(required(a_category.get('nicename')))
+            wp_item.category = category
+            wp_item.tag_slugs = tag_slugs
+            items.append(wp_item)
+        return items
+
+    def __init_tags(self) -> Sequence[WordPressTag]:
+        tags: List[WordPressTag] = []
+        for tag in required(self.__channel.findall('wp:tag', WordPress.namespaces)):
+            term_id = ''.join(required(tag.find('wp:term_id', WordPress.namespaces)).itertext())
+            tag_slug = ''.join(required(tag.find('wp:tag_slug', WordPress.namespaces)).itertext())
+            tag_name = ''.join(required(tag.find('wp:tag_name', WordPress.namespaces)).itertext())
+            tags.append(WordPressTag(term_id, tag_slug, tag_name))
+        return tags
+
+    def blog_description(self) -> str:
+        return ''.join(required(self.__channel.find('description')).itertext())
+
+    def blog_language(self) -> str:
+        return ''.join(required(self.__channel.find('language')).itertext())
+
+    def blog_title(self) -> str:
+        return ''.join(required(self.__channel.find('title')).itertext())
+
+    def blog_url(self) -> str:
+        return ''.join(required(self.__channel.find('link')).itertext())
+
+    # FIXME: remove
+    def xml(self):
+        return self.__tree
+
+
 def main(cmdline_arguments) -> int:
     parser = argparse.ArgumentParser(description=DESCRIPTION)
-    parser.add_argument('export_file', metavar='wordpress-export', help='wordpress export file')
+    parser.add_argument('export_file', metavar='wordpress-xml', help='wordpress export file')
     parser.add_argument('-o', '--output', default=None, help='output directory')
 
     args = parser.parse_args(cmdline_arguments[1:])
 
     print(args.export_file)
 
-    tree: ET.Element = parse_xml(pathlib.Path(args.export_file))
-
-    channel: ET.Element = get(tree.find('channel'))
+    wordpress: WordPress = WordPress(pathlib.Path(args.export_file))
 
     output_dir = args.output and pathlib.Path(args.output) or None
     if output_dir is None:
-        website_link = ''.join(get(channel.find('link')).itertext())
         # TODO what if it's http?
-        website_address = website_link.lstrip("https://")
+        website_address = wordpress.blog_url()[len('https://'):]
         output_dir = pathlib.Path(website_address)
 
     print(output_dir)
     output_dir.mkdir()
 
-    generate_config_toml(output_dir, tree)
+    config_file = output_dir / 'config.toml'
+    with open(config_file, 'w') as output:
+        output.write(generate_config_toml(wordpress))
+
+    authors = wordpress.authors
+    categories = wordpress.categories
+    items = wordpress.items
+    tags = wordpress.tags
+
+    content_dir = output_dir / 'content'
+    content_dir.mkdir()
+
+    for post in items:
+        page_name = compute_hugo_page_name(wordpress, post).replace('/', '-')
+        file_name = page_name + '.md'
+        with (content_dir / file_name).open('w'):
+           print('writing: ' + (content_dir / file_name).as_posix())
 
     return 0
 
-def parse_xml(xml_file: pathlib.Path) -> ET.Element:
-    root = ET.parse(xml_file.as_posix()).getroot()
-    return root
+def generate_config_toml(wp: WordPress) -> str:
+    website_link = wp.blog_url()[len('https://'):]
+    language = wp.blog_language().lower()
+    title = wp.blog_title()
 
+    return '\n'.join([
+        f'baseURL = "{website_link}"',
+        f'languageCode = "{language}"',
+        f'title = "{title}"',
+        f'# theme = ""',
+    ])
 
-def generate_config_toml(directory: pathlib.Path, tree: ET.Element) -> None:
-    file = directory / 'config.toml'
-    channel: ET.Element = get(tree.find('channel'))
-    website_link: str = ''.join(get(channel.find('link')).itertext())
-    title: str = ''.join(get(channel.find('title')).itertext())
+def compute_hugo_page_name(wp: WordPress, item: WordPressItem) -> str:
+    link = item.link
+    if not link.startswith(wp.blog_url()):
+        raise AssertionError
+    relative_url = link[len(wp.blog_url()):]
+    if relative_url.startswith('/'):
+        relative_url = relative_url[1:]
+    if relative_url.endswith('/'):
+        relative_url = relative_url[:-1]
+    return relative_url
 
-    with open(file, 'w') as output:
-        output.write(f'baseURL = "{website_link}"\n')
-        output.write(f'languageCode = "en-us"\n')
-        output.write(f'title = "{title}"\n')
-        output.write(f'# theme = ""\n')
-
-def get(element: Optional[ET.Element]) -> ET.Element:
+def required(element: Optional[T]) -> T:
     if element is None:
         raise AssertionError
     return element
-
-class WordPress:
-    pass
-
 
 if __name__ == '__main__':
     retval = main(sys.argv)
