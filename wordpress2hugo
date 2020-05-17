@@ -228,8 +228,8 @@ def generate_config(wp: WordPress) -> Toml:
         baseURL = "{website_link}"
         languageCode = "{language}"
         title = "{title}"
-        # theme = ""'''
-    ))
+        # theme = ""
+        '''))
 
 def hugo_content_file_path(wp: WordPress, item: WordPressItem) -> str:
     # Policy: posts go into 'posts/'
