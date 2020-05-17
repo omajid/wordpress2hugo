@@ -5,6 +5,7 @@ import collections
 import pathlib
 import sys
 from typing import List, Literal, Optional, NewType, Sequence, TypeVar
+import textwrap
 import xml.etree.ElementTree as ET
 import urllib.parse
 
@@ -13,6 +14,7 @@ DESCRIPTION = 'Export a WordPress site to Hugo'
 T = TypeVar('T')
 
 Html = NewType('Html', str)
+Toml = NewType('Toml', str)
 
 WordPressAuthor = collections.namedtuple('WordPressAuthor', ['id', 'login', 'email', 'display_name', 'first_name', 'last_name'])
 WordPressCategory = collections.namedtuple('WordPressCategory', ['id', 'nice_name', 'parent', 'name'])
@@ -130,6 +132,20 @@ class WordPress:
     def xml(self):
         return self.__tree
 
+class Hugo:
+    @classmethod
+    def generate_site_layout(cls, root: pathlib.Path) -> None:
+        standard_hugo_directories = [
+            'archetypes',
+            'content',
+            'data',
+            'layouts',
+            'resources',
+            'static',
+            'themes',
+        ]
+        for directory in standard_hugo_directories:
+            (root / directory).mkdir(parents=True, exist_ok=True)
 
 def main(cmdline_arguments) -> int:
     parser = argparse.ArgumentParser(description=DESCRIPTION)
@@ -151,9 +167,11 @@ def main(cmdline_arguments) -> int:
     print(output_dir)
     output_dir.mkdir()
 
+    Hugo.generate_site_layout(output_dir)
+
     config_file = output_dir / 'config.toml'
     with open(config_file, 'w') as output:
-        output.write(generate_config_toml(wordpress))
+        output.write(generate_config(wordpress))
 
     authors = wordpress.authors
     categories = wordpress.categories
@@ -161,29 +179,60 @@ def main(cmdline_arguments) -> int:
     tags = wordpress.tags
 
     content_dir = output_dir / 'content'
-    content_dir.mkdir()
 
-    for post in items:
-        page_name = compute_hugo_page_name(wordpress, post).replace('/', '-')
-        file_name = page_name + '.md'
-        with (content_dir / file_name).open('w'):
-           print('writing: ' + (content_dir / file_name).as_posix())
+    for item in items:
+        item_name = hugo_content_file_path(wordpress, item)
+        file_name = item_name + '.md'
+        current_path = (content_dir / file_name)
+        current_path.parent.mkdir(parents=True, exist_ok=True)
+        with current_path.open('w') as file:
+           print('writing: ' + current_path.as_posix())
+           file.write('+++\n')
+           alises = generate_aliases(wordpress, item, file_name)
+           file.write(alises)
+           # TODO write author, categories, tags, publishDate, etc
+           file.write('+++')
+           file.write('\n')
+           file.write(item.content)
+           file.write('\n')
 
     return 0
 
-def generate_config_toml(wp: WordPress) -> str:
+def generate_aliases(wp: WordPress, item: WordPressItem, file_name: str) -> Toml:
+    '''Generate aliases if needed.'''
+
+    link = item.link
+    if not link.startswith(wp.blog_url()):
+        raise AssertionError
+    relative_url = link[len(wp.blog_url()):]
+
+    if not file_name.endswith('.md'):
+        raise AssertionError
+
+    clean_path = '/' + file_name[:-(len('.md'))] + '/'
+    # only need aliases if the original path and new path are different
+    if clean_path == relative_url:
+        return Toml('\n')
+
+    return Toml(textwrap.dedent(f'''\
+        aliases = [
+            "{relative_url}",
+        ]
+        '''))
+
+def generate_config(wp: WordPress) -> Toml:
     website_link = wp.blog_url()[len('https://'):]
     language = wp.blog_language().lower()
     title = wp.blog_title()
 
-    return '\n'.join([
-        f'baseURL = "{website_link}"',
-        f'languageCode = "{language}"',
-        f'title = "{title}"',
-        f'# theme = ""',
-    ])
+    return Toml(textwrap.dedent(f'''\
+        f'baseURL = "{website_link}"
+        f'languageCode = "{language}"
+        f'title = "{title}"
+        f'# theme = ""'''
+    ))
 
-def compute_hugo_page_name(wp: WordPress, item: WordPressItem) -> str:
+def hugo_content_file_path(wp: WordPress, item: WordPressItem) -> str:
     link = item.link
     if not link.startswith(wp.blog_url()):
         raise AssertionError
@@ -192,6 +241,10 @@ def compute_hugo_page_name(wp: WordPress, item: WordPressItem) -> str:
         relative_url = relative_url[1:]
     if relative_url.endswith('/'):
         relative_url = relative_url[:-1]
+
+    if item.post_type == 'post':
+        return 'posts/' + relative_url.replace('/', '-')
+
     return relative_url
 
 def required(element: Optional[T]) -> T:
