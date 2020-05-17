@@ -1,7 +1,24 @@
 #!/usr/bin/python3
 
+# wordpress2hugo
+# Copyright © 2020 Omair Majid
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 import argparse
 import collections
+import html2text
 import pathlib
 import sys
 from typing import List, Literal, Optional, NewType, Sequence, TypeVar
@@ -15,10 +32,17 @@ T = TypeVar('T')
 
 Html = NewType('Html', str)
 Toml = NewType('Toml', str)
+Markdown = NewType('Markdown', str)
 
 WordPressAuthor = collections.namedtuple('WordPressAuthor', ['id', 'login', 'email', 'display_name', 'first_name', 'last_name'])
 WordPressCategory = collections.namedtuple('WordPressCategory', ['id', 'nice_name', 'parent', 'name'])
 WordPressTag = collections.namedtuple('WordPressTag', ['term_id', 'slug', 'tag_name'])
+
+# TODO
+class MigrationPolicy:
+    blog_posts_in_posts_dir: bool = True
+    alias_existing_urls: bool = True
+    configuration_style: str = 'toml'
 
 class WordPressItem:
     def __init__(self):
@@ -34,9 +58,10 @@ class WordPressItem:
         # FIXME: stronger type
         self.post_date: str = ''
         self.post_name: str = ''
+        self.status: str = 'draft'
         # FIXME: stronger type
         self.post_type: str = 'post'
-        self.category: str = 'uncategorized'
+        self.category_nicenames: List[str] = ['uncategorized']
         self.tag_slugs: List[str] = []
 
 class WordPress:
@@ -93,16 +118,19 @@ class WordPress:
             wp_item.post_id = int(''.join(required(item.find('wp:post_id', WordPress.namespaces)).itertext()))
             wp_item.post_date = ''.join(required(item.find('wp:post_date', WordPress.namespaces)).itertext())
             wp_item.post_name = ''.join(required(item.find('wp:post_name', WordPress.namespaces)).itertext())
+            wp_item.status = ''.join(required(item.find('wp:status', WordPress.namespaces)).itertext())
             wp_item.post_type = ''.join(required(item.find('wp:post_type', WordPress.namespaces)).itertext())
-            category: str = 'uncategorized'
             tag_slugs: List[str] = []
+            category_nicenames: List[str] = []
             messed_up_categories = item.findall('category')
             for a_category in messed_up_categories:
                 if a_category.get('domain') == 'category':
-                    category = required(a_category.get('nicename'))
+                    category_nicenames.append(required(a_category.get('nicename')))
                 if a_category.get('domain') == 'post_tag':
                     tag_slugs.append(required(a_category.get('nicename')))
-            wp_item.category = category
+            if not category_nicenames:
+                category_nicenames = ['uncategorized']
+            wp_item.category_nicenames = category_nicenames
             wp_item.tag_slugs = tag_slugs
             items.append(wp_item)
         return items
@@ -147,6 +175,7 @@ class Hugo:
         for directory in standard_hugo_directories:
             (root / directory).mkdir(parents=True, exist_ok=True)
 
+
 def main(cmdline_arguments) -> int:
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument('export_file', metavar='wordpress-xml', help='wordpress export file')
@@ -173,52 +202,22 @@ def main(cmdline_arguments) -> int:
     with open(config_file, 'w') as output:
         output.write(generate_config(wordpress))
 
-    authors = wordpress.authors
-    categories = wordpress.categories
-    items = wordpress.items
-    tags = wordpress.tags
-
     content_dir = output_dir / 'content'
 
-    for item in items:
+    for item in wordpress.items:
         item_name = hugo_content_file_path(wordpress, item)
         file_name = item_name + '.md'
         current_path = (content_dir / file_name)
         current_path.parent.mkdir(parents=True, exist_ok=True)
         with current_path.open('w') as file:
-           print('writing: ' + current_path.as_posix())
+           # print('writing: ' + current_path.as_posix())
            file.write('+++\n')
-           alises = generate_aliases(wordpress, item, file_name)
-           file.write(alises)
-           # TODO write author, categories, tags, publishDate, etc
-           file.write('+++')
-           file.write('\n')
-           file.write(item.content)
+           file.write(generate_front_matter(wordpress, item, content_dir, current_path))
+           file.write('+++\n')
+           file.write(html_to_markdown(item.content))
            file.write('\n')
 
     return 0
-
-def generate_aliases(wp: WordPress, item: WordPressItem, file_name: str) -> Toml:
-    '''Generate aliases if needed.'''
-
-    link = item.link
-    if not link.startswith(wp.blog_url()):
-        raise AssertionError
-    relative_url = link[len(wp.blog_url()):]
-
-    if not file_name.endswith('.md'):
-        raise AssertionError
-
-    clean_path = '/' + file_name[:-(len('.md'))] + '/'
-    # only need aliases if the original path and new path are different
-    if clean_path == relative_url:
-        return Toml('\n')
-
-    return Toml(textwrap.dedent(f'''\
-        aliases = [
-            "{relative_url}",
-        ]
-        '''))
 
 def generate_config(wp: WordPress) -> Toml:
     website_link = wp.blog_url()[len('https://'):]
@@ -226,13 +225,15 @@ def generate_config(wp: WordPress) -> Toml:
     title = wp.blog_title()
 
     return Toml(textwrap.dedent(f'''\
-        f'baseURL = "{website_link}"
-        f'languageCode = "{language}"
-        f'title = "{title}"
-        f'# theme = ""'''
+        baseURL = "{website_link}"
+        languageCode = "{language}"
+        title = "{title}"
+        # theme = ""'''
     ))
 
 def hugo_content_file_path(wp: WordPress, item: WordPressItem) -> str:
+    # Policy: posts go into 'posts/'
+
     link = item.link
     if not link.startswith(wp.blog_url()):
         raise AssertionError
@@ -246,6 +247,81 @@ def hugo_content_file_path(wp: WordPress, item: WordPressItem) -> str:
         return 'posts/' + relative_url.replace('/', '-')
 
     return relative_url
+
+def generate_front_matter(wp: WordPress, item: WordPressItem,
+                          content_root: pathlib.Path, file_name: pathlib.Path) -> Toml:
+    result = ''
+    result += f'title = "{item.title}"\n'
+    result += f'date = "{item.pubDate}"\n'
+    if item.description:
+        result += f'description: "{item.description}"\n'
+    if item.status == 'draft':
+        result += 'draft: true\n'
+    author_name = generate_author_name(wp, item)
+    if author_name:
+        result += author_name + '\n'
+    item_categories = generate_categories(wp, item)
+    if item_categories:
+        result += item_categories + '\n'
+    item_tags = generate_tags(wp, item)
+    if item_tags:
+        result += item_tags + '\n'
+    item_aliases = generate_aliases(wp, item, content_root, file_name)
+    if item_aliases:
+        result += item_aliases + '\n'
+
+    return Toml(result)
+
+def generate_author_name(wp: WordPress, item: WordPressItem) -> str:
+    author = [ f'{author.first_name} {author.last_name}'
+               for author in wp.authors if author.display_name == item.creator][0]
+    return f'author = "{author}"'
+
+def generate_categories(wp: WordPress, item: WordPressItem) -> Optional[str]:
+    # print(f'{item.title}: {item.category_nicenames}')
+    categories = []
+    for nicename in item.category_nicenames:
+        categories.extend([category.name for category in wp.categories if category.nice_name == nicename])
+    if categories:
+        return 'categories = [ "' + '", "'.join(categories) + '" ]'
+    return None
+
+def generate_tags(wp: WordPress, item: WordPressItem) -> Optional[str]:
+    tags = []
+    # print(f'tags: {item.tag_slugs}')
+    for slug in item.tag_slugs:
+        tags.extend([tag.tag_name for tag in wp.tags if tag.slug == slug])
+    if tags:
+        return 'tags = [ "' + '", "'.join(tags) + '" ]'
+    return None
+
+def generate_aliases(wp: WordPress, item: WordPressItem,
+                     content_root: pathlib.Path, file: pathlib.Path) -> Optional[str]:
+    '''Generate aliases if needed.'''
+
+    link = item.link
+    if not link.startswith(wp.blog_url()):
+        raise AssertionError
+    relative_url = link[len(wp.blog_url()):]
+
+    relative_path = file.relative_to(content_root)
+    # print(f'relative_path: {relative_path}')
+
+    if not file.name.endswith('.md'):
+        raise AssertionError
+
+    clean_path = '/' + relative_path.as_posix()[:-(len('.md'))] + '/'
+    # only need aliases if the original path and new path are different
+    if clean_path == relative_url:
+        return None
+
+    return textwrap.dedent(f'''\
+        aliases = [
+            "{relative_url}",
+        ]''')
+
+def html_to_markdown(text: Html) -> Markdown:
+    return Markdown(html2text.html2text(str(text)))
 
 def required(element: Optional[T]) -> T:
     if element is None:
