@@ -18,6 +18,6 @@ export-and-render:
 	(cd *.wordpress.com && \
 	 git init . && \
 	 git submodule add https://github.com/budparr/gohugo-theme-ananke.git themes/ananke && \
-	 echo 'theme = "ananke"' >> config.toml)
-
+	 echo 'theme = "ananke"' >> config.toml && \
+	 hugo server -D)
 
