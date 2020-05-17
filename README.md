@@ -2,7 +2,8 @@
 
 ## Usage
 
-Use a
+Export a `.xml` backup from your wordpress site, and then use this to
+convert it to hugo:
 
 ``` shell
 ./wordpress2hugo --help
@@ -17,8 +18,13 @@ Use a
 
 ## TODO
 
+- Configure and use migration policies - let users select the on-disk
+  layout of the migrated website.
+- Set up and document how to use `html2text` from pypi
 - Apply https://python-packaging.readthedocs.io/en/latest/command-line-scripts.html
 - Export images from the original WordPress site
+- Add unit Tests
+- Modularize the code further
 
 ## License
 
