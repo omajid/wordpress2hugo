@@ -37,6 +37,7 @@ Markdown = NewType('Markdown', str)
 WordPressAuthor = collections.namedtuple('WordPressAuthor', ['id', 'login', 'email', 'display_name', 'first_name', 'last_name'])
 WordPressCategory = collections.namedtuple('WordPressCategory', ['id', 'nice_name', 'parent', 'name'])
 WordPressTag = collections.namedtuple('WordPressTag', ['term_id', 'slug', 'tag_name'])
+WordPressItemType = Literal['page', 'post']
 
 # TODO
 class MigrationPolicy:
@@ -60,8 +61,7 @@ class WordPressItem:
         self.post_date: str = ''
         self.post_name: str = ''
         self.status: str = 'draft'
-        # FIXME: stronger type
-        self.post_type: str = 'post'
+        self.post_type: WordPressPostType = 'post'
         self.category_nicenames: List[str] = []
         self.tag_slugs: List[str] = []
 
@@ -241,6 +241,8 @@ def hugo_content_file_path(wp: WordPress, item: WordPressItem) -> str:
 
     if item.post_type == 'post':
         return 'posts/' + relative_url.replace('/', '-')
+    if item.post_type != 'page':
+        raise AssertionError
 
     return relative_url
 
