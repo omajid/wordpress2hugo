@@ -178,8 +178,6 @@ def main(cmdline_arguments) -> int:
 
     args = parser.parse_args(cmdline_arguments[1:])
 
-    print(args.export_file)
-
     wordpress: WordPress = WordPress(pathlib.Path(args.export_file))
 
     output_dir = args.output and pathlib.Path(args.output) or None
@@ -188,7 +186,11 @@ def main(cmdline_arguments) -> int:
         website_address = wordpress.blog_url()[len('https://'):]
         output_dir = pathlib.Path(website_address)
 
-    print(output_dir)
+    if output_dir.exists():
+        print(f'error: output directory {output_dir.as_posix()} already exists')
+        return 1
+
+    print(f'Generating site at {output_dir}')
     output_dir.mkdir()
 
     Hugo.generate_site_layout(output_dir)
@@ -205,7 +207,6 @@ def main(cmdline_arguments) -> int:
         current_path = (content_dir / file_name)
         current_path.parent.mkdir(parents=True, exist_ok=True)
         with current_path.open('w') as file:
-           # print('writing: ' + current_path.as_posix())
            file.write('+++\n')
            file.write(generate_front_matter(wordpress, item, content_dir, current_path))
            file.write('+++\n')
