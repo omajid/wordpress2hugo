@@ -323,7 +323,9 @@ def generate_aliases(wp: WordPress, item: WordPressItem,
         ]''')
 
 def html_to_markdown(text: Html) -> Markdown:
-    return Markdown(html2text.html2text(str(text)))
+    text_maker = html2text.HTML2Text()
+    text_maker.wrap_links = False
+    return Markdown(text_maker.handle(str(text)))
 
 def required(element: Optional[T]) -> T:
     if element is None:
