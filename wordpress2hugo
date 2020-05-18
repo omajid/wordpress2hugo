@@ -43,6 +43,7 @@ class MigrationPolicy:
     blog_posts_in_posts_dir: bool = True
     alias_existing_urls: bool = True
     configuration_style: str = 'toml'
+    skip_category_uncategorized: bool = True
 
 class WordPressItem:
     def __init__(self):
@@ -61,7 +62,7 @@ class WordPressItem:
         self.status: str = 'draft'
         # FIXME: stronger type
         self.post_type: str = 'post'
-        self.category_nicenames: List[str] = ['uncategorized']
+        self.category_nicenames: List[str] = []
         self.tag_slugs: List[str] = []
 
 class WordPress:
@@ -128,8 +129,6 @@ class WordPress:
                     category_nicenames.append(required(a_category.get('nicename')))
                 if a_category.get('domain') == 'post_tag':
                     tag_slugs.append(required(a_category.get('nicename')))
-            if not category_nicenames:
-                category_nicenames = ['uncategorized']
             wp_item.category_nicenames = category_nicenames
             wp_item.tag_slugs = tag_slugs
             items.append(wp_item)
@@ -280,7 +279,10 @@ def generate_author_name(wp: WordPress, item: WordPressItem) -> str:
 def generate_categories(wp: WordPress, item: WordPressItem) -> Optional[str]:
     # print(f'{item.title}: {item.category_nicenames}')
     categories = []
+    # Policy: skip 'uncategorized'
     for nicename in item.category_nicenames:
+        if nicename == 'uncategorized':
+            continue
         categories.extend([category.name for category in wp.categories if category.nice_name == nicename])
     if categories:
         return 'categories = [ "' + '", "'.join(categories) + '" ]'
