@@ -219,7 +219,7 @@ def main(cmdline_arguments) -> int:
     return 0
 
 def generate_config(wp: WordPress) -> Toml:
-    website_link = wp.blog_url()[len('https://'):]
+    website_link = wp.blog_url()
     language = wp.blog_language().lower()
     title = wp.blog_title()
 
