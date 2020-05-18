@@ -182,8 +182,11 @@ def main(cmdline_arguments) -> int:
 
     output_dir = args.output and pathlib.Path(args.output) or None
     if output_dir is None:
-        # TODO what if it's http?
-        website_address = wordpress.blog_url()[len('https://'):]
+        website_address = wordpress.blog_url()
+        for protocol in ['http://', 'https://']:
+            if website_address.startswith(protocol):
+                website_address = website_address[len(protocol):]
+                break
         output_dir = pathlib.Path(website_address)
 
     if output_dir.exists():
