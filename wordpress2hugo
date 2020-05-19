@@ -321,9 +321,16 @@ def generate_aliases(wp: WordPress, item: WordPressItem,
         ]''')
 
 def html_to_markdown(text: Html) -> Markdown:
+    # This is really confusing. WordPress stores the article as
+    # html-with-significant-whitespace. Lets use a giant hack for this:
+    # manually translate the 'newline' characters to an html line-break.
+    to_handle: str = text
+    to_handle = to_handle.replace('\r\n', '<br />')
+    to_handle = to_handle.replace('\n', '<br />')
+    to_handle = to_handle.replace('\r', '<br />')
     text_maker = html2text.HTML2Text()
     text_maker.wrap_links = False
-    return Markdown(text_maker.handle(str(text)))
+    return Markdown(text_maker.handle(to_handle))
 
 def required(element: Optional[T]) -> T:
     if element is None:

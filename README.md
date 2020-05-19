@@ -63,6 +63,7 @@ pipenv install --dev
 Here's a collection of ideas for some future improvements. Pull
 Requests for these are highly welcome!
 
+- Organize posts by year
 - Configure and use migration policies - let users select the on-disk
   layout of the migrated website.
 - Export images from the original WordPress site
